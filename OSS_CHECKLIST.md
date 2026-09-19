@@ -8,8 +8,8 @@
 - [x] Contributing guide
 - [x] Security policy
 - [x] Roadmap
-- [ ] iOS source publicly committed
-- [ ] Build verified from the publishable checkout
+- [x] iOS source publicly committed on the public oss-readiness branch
+- [x] Build verified from the publishable checkout
 - [ ] Tagged pre-release created
 
 ## Privacy and security
@@ -19,14 +19,14 @@
 - [x] No personal transaction data identified
 - [x] No API keys or tokens identified
 - [x] No signing certificates or provisioning profiles identified
-- [ ] Verify staged files again immediately before commit
-- [ ] Use only synthetic fixtures in public tests
+- [x] Verify staged files again immediately before commit
+- [x] Use only synthetic fixtures in public tests
 
 ## Project activity
 
 - [ ] Create public roadmap issues
 - [ ] Use pull requests for meaningful changes
-- [ ] Maintain understandable commit history
+- [x] Maintain understandable commit history
 - [ ] Publish release notes for first pre-release
 - [ ] Collect genuine external usage and feedback
 

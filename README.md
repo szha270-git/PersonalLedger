@@ -81,4 +81,3 @@ See [SECURITY.md](SECURITY.md).
 ## License
 
 MIT License. See [LICENSE](LICENSE).
-Personal finance ledger and statement importer for iOS
