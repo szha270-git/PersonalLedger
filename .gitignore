@@ -1,0 +1,49 @@
+# macOS
+.DS_Store
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+*.xcscmblueprint
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM
+*.dSYM.zip
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# CocoaPods
+Pods/
+
+# Carthage
+Carthage/Build/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+Secrets.*
+secrets.*
+*.p12
+*.cer
+*.mobileprovision
+*.key
+*.pem
+
+# Private/local financial data
+PrivateData/
+LocalData/
+Statements/
+ImportedStatements/
+BankStatements/
+
+# Temporary files
+*.tmp
+*.swp
+*~
