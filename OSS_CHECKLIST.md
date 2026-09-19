@@ -25,7 +25,7 @@
 ## Project activity
 
 - [ ] Create public roadmap issues
-- [ ] Use pull requests for meaningful changes
+- [x] Use pull requests for meaningful changes
 - [x] Maintain understandable commit history
 - [ ] Publish release notes for first pre-release
 - [ ] Collect genuine external usage and feedback
