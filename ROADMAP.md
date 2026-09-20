@@ -6,7 +6,7 @@ This roadmap describes intended work and is not a release commitment.
 
 ## Phase 1 — Public foundation
 
-- [ ] Publish initial iOS source after privacy and secrets audit
+- [x] Publish initial iOS source after privacy and secrets audit
 - [ ] Document project architecture
 - [x] Add repeatable local build instructions
 - [x] Add synthetic statement fixtures

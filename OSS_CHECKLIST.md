@@ -8,7 +8,7 @@
 - [x] Contributing guide
 - [x] Security policy
 - [x] Roadmap
-- [x] iOS source publicly committed on the public oss-readiness branch
+- [x] iOS source publicly committed to main
 - [x] Build verified from the publishable checkout
 - [ ] Tagged pre-release created
 
