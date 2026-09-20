@@ -110,7 +110,7 @@ struct AmericanExpressAccountDetailsExtractor {
     private func accountHolder(in text: String) -> ExtractedField<String>? {
         stringField(
             patterns: [
-                #"(?i)\b(?:Card\s+Member|Account\s+Holder)\s*[:\-]?\s*([A-Za-z][A-Za-z .'-]{2,80})"#
+                #"(?i)\b(?:Card\s+Member|Account\s+Holder)\s*[:\-]?\s*([A-Za-z][A-Za-z .'-]{2,80}?)(?=\s+(?:Card|Account|Membership)\s+(?:Number|No\.?|#)\b|$)"#
             ],
             in: text,
             confidence: .high
@@ -132,10 +132,10 @@ struct AmericanExpressAccountDetailsExtractor {
         in text: String
     ) -> (start: ExtractedField<Date>?, end: ExtractedField<Date>?)? {
         guard let result = firstMatch(
-            #"(?i)\bStatement\s+Period\s+(?:From\s+)?([A-Za-z]+\s+\d{1,2})(?:,?\s+(\d{4}))?\s+to\s+([A-Za-z]+\s+\d{1,2}),?\s+(\d{4})"#,
+            #"(?i)\bStatement\s+Period\s+(?:From\s+)?([A-Za-z]+\s+\d{1,2}(?:,?\s+\d{4})?)\s+to\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})"#,
             in: text
-        ), result.captures.count == 4,
-        let endDate = parseDate("\(result.captures[2]) \(result.captures[3])")
+        ), result.captures.count == 2,
+        let endDate = parseDate(result.captures[1])
         else {
             return nil
         }
@@ -144,8 +144,8 @@ struct AmericanExpressAccountDetailsExtractor {
         let endYear = calendar.component(.year, from: endDate)
         let endMonth = calendar.component(.month, from: endDate)
         let startMonth = monthNumber(named: result.captures[0].components(separatedBy: " ").first ?? "") ?? endMonth
-        let startYear = Int(result.captures[1]) ?? (startMonth > endMonth ? endYear - 1 : endYear)
-        let startDate = parseDate("\(result.captures[0]) \(startYear)")
+        let startYear = startYear(in: result.captures[0]) ?? (startMonth > endMonth ? endYear - 1 : endYear)
+        let startDate = parseDate(result.captures[0]) ?? parseDate("\(result.captures[0]) \(startYear)")
         let sourceText = result.text
 
         return (
@@ -247,6 +247,12 @@ struct AmericanExpressAccountDetailsExtractor {
         return formatter.monthSymbols.firstIndex {
             $0.caseInsensitiveCompare(month) == .orderedSame
         }.map { $0 + 1 }
+    }
+
+    private func startYear(in text: String) -> Int? {
+        text.split(separator: " ").last.flatMap {
+            Int($0.trimmingCharacters(in: CharacterSet(charactersIn: ",")))
+        }
     }
 
     private func normalizedWhitespace(in text: String) -> String {

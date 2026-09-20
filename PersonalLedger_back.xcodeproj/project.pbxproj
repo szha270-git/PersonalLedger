@@ -371,6 +371,7 @@
 		2DCE31E33032E3D100A73C1F /* Debug configuration for PBXNativeTarget "LedgerTests" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -387,6 +388,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Ledger.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Ledger";
 				XROS_DEPLOYMENT_TARGET = 27.0;
 			};
 			name = Debug;
@@ -394,6 +396,7 @@
 		2DCE31E43032E3D100A73C1F /* Release configuration for PBXNativeTarget "LedgerTests" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -410,6 +413,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Ledger.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Ledger";
 				XROS_DEPLOYMENT_TARGET = 27.0;
 			};
 			name = Release;
