@@ -155,6 +155,7 @@ struct StatementAccountDetailsExtractor {
         }
         let product = sourceText
             .replacingOccurrences(of: institution, with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "American Express", with: "", options: .caseInsensitive)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !product.isEmpty else { return nil }
         return ExtractedField(value: product, confidence: .medium, sourceText: sourceText)
@@ -163,7 +164,7 @@ struct StatementAccountDetailsExtractor {
     private func accountHolderName(in text: String) -> ExtractedField<String>? {
         stringField(
             patterns: [
-                #"(?im)\b(?:Account\s+Holder|Card\s+Member|Prepared\s+For)\s*[:\-]\s*([A-Z][A-Z .'-]{2,80})"#,
+                #"(?im)\b(?:Account\s+Holder|Card\s+Member|Prepared\s+For)\s*[:\-]\s*([A-Z][A-Z .'-]{2,80}?)(?=\s+(?:Card|Account|Membership)\s+(?:Number|No\.?|#)\b|$)"#,
                 #"(?im)^\s*([A-Z][A-Z .'-]{2,80})\s+(?:(?:X|\*){2,}[X*\d-]*)\s*$"#
             ],
             in: text,
