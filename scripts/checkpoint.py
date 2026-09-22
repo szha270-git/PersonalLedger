@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run PersonalLedger's safe pre-commit checkpoint workflow.
+"""Run Nett's safe pre-commit checkpoint workflow.
 
 This script deliberately keeps Git operations conservative: it never resets,
 amends, force-pushes, merges, tags, or creates releases.
@@ -228,33 +228,77 @@ def blocked_files(paths: list[str]) -> list[tuple[str, str]]:
     ]
 
 
-def handle_branch(root: Path, dry_run: bool) -> str:
-    branch = run_git(root, "branch", "--show-current").strip()
-    if not branch:
-        raise CheckpointError("Detached HEAD: switch to a branch before creating a checkpoint.")
-    status("OK", f"Current branch: {branch}")
-    if branch != "main":
-        return branch
+def choose_feature_branch_name(root: Path) -> str:
+    """Let the developer choose a new branch name without changing any branch."""
+    try:
+        requested_name = input(f"Feature branch name [{FEATURE_BRANCH}]: ").strip()
+    except EOFError:
+        requested_name = ""
+    branch_name = requested_name or FEATURE_BRANCH
+    validation = subprocess.run(
+        ["git", "check-ref-format", "--branch", branch_name],
+        cwd=root,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if validation.returncode != 0:
+        raise CheckpointError(f"Invalid feature branch name: {branch_name}")
+    return branch_name
 
-    if dry_run:
-        status("OK", f"Would ask to create and switch to {FEATURE_BRANCH}")
-        return branch
 
-    if not ask(f"Create and switch to {FEATURE_BRANCH}?", default=True):
-        status("WARNING", "Staying on main. No branch was created or switched.")
-        return branch
-
-    branch_exists = run_git(root, "branch", "--list", FEATURE_BRANCH).strip()
+def create_or_switch_feature_branch(root: Path) -> str:
+    """Create a branch, or switch only after confirmation if it already exists."""
+    feature_branch = choose_feature_branch_name(root)
+    branch_exists = run_git(root, "branch", "--list", feature_branch).strip()
     if branch_exists:
-        if not ask(f"Branch {FEATURE_BRANCH} already exists. Switch to it?", default=False):
-            status("WARNING", "Staying on main. No branch was switched.")
-            return branch
-        run_git(root, "switch", FEATURE_BRANCH)
+        if not ask(f"Branch {feature_branch} already exists. Switch to it?", default=False):
+            raise CheckpointError("No feature branch was selected. Checkpoint stopped before staging.")
+        run_git(root, "switch", feature_branch)
     else:
-        run_git(root, "switch", "-c", FEATURE_BRANCH)
+        run_git(root, "switch", "-c", feature_branch)
     branch = run_git(root, "branch", "--show-current").strip()
     status("OK", f"Using branch: {branch}")
     return branch
+
+
+def handle_branch(root: Path, dry_run: bool) -> str:
+    branch = run_git(root, "branch", "--show-current").strip()
+    # Prefer the current release/* convention, while also protecting the
+    # project's existing release-v* branch naming convention.
+    protected_branch = branch == "main" or branch.startswith(("release/", "release-"))
+    detached_head = not branch
+
+    if not protected_branch and not detached_head:
+        status("OK", f"Current branch: {branch}")
+        return branch
+
+    context = "detached HEAD" if detached_head else f"protected branch '{branch}'"
+    status(
+        "WARNING",
+        f"You are on {context}. New development should not normally be committed directly here.",
+    )
+    if detached_head:
+        status(
+            "STOP",
+            "Checkpoint commits are disabled while HEAD is detached. Create or switch to a named feature branch first.",
+        )
+    if dry_run:
+        status("OK", f"Would offer to create and switch to {FEATURE_BRANCH}, or accept another feature branch name")
+        return branch or "detached HEAD"
+
+    if ask(f"Create and switch to a feature branch (suggested: {FEATURE_BRANCH})?", default=True):
+        return create_or_switch_feature_branch(root)
+
+    if detached_head:
+        raise CheckpointError(
+            "Detached HEAD requires a named feature branch before staging or committing. "
+            f"Suggested branch: {FEATURE_BRANCH}."
+        )
+    if ask(f"Continue on protected branch '{branch}'?", default=False):
+        status("WARNING", f"Continuing on protected branch: {branch}")
+        return branch
+    raise CheckpointError("No feature branch was selected. Checkpoint stopped before staging.")
 
 
 def run_diff_check(root: Path, cached: bool) -> None:
@@ -281,7 +325,7 @@ def unstage_blocked_files(root: Path, paths: list[str]) -> None:
 
 
 def print_summary(branch: str, staged_count: int, dry_run: bool) -> None:
-    title = "PersonalLedger Checkpoint (dry run)" if dry_run else "PersonalLedger Checkpoint"
+    title = "Nett Checkpoint (dry run)" if dry_run else "Nett Checkpoint"
     print("\n--------------------------------")
     print(title)
     print("--------------------------------")
@@ -314,7 +358,7 @@ def commit_and_optionally_push(root: Path, branch: str) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run PersonalLedger's safe Git checkpoint workflow.")
+    parser = argparse.ArgumentParser(description="Run Nett's safe Git checkpoint workflow.")
     parser.add_argument("--dry-run", action="store_true", help="Show checks and planned actions without changing files or Git state.")
     arguments = parser.parse_args()
 

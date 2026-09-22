@@ -72,7 +72,7 @@ enum MerchantCategoryRuleService {
 
 /// Applies import-time category precedence without creating categories from bank-provided labels.
 enum ImportCategorySuggestionService {
-    /// Conservative source labels that have a clear equivalent in PersonalLedger's vocabulary.
+    /// Conservative source labels that have a clear equivalent in the app's category vocabulary.
     /// Keep this table explicit: unknown bank labels must remain unresolved rather than guessed.
     private static let sourceCategoryAliases = [
         "flights": "travel",

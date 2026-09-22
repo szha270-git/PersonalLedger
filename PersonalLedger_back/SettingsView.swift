@@ -21,7 +21,7 @@ struct SettingsView: View {
                 }
 
                 Section("Privacy") {
-                    Label("Financial data stays on this device", systemImage: "lock.fill")
+                    Label("Nett processes supported statement imports locally", systemImage: "lock.fill")
                         .foregroundStyle(.secondary)
                 }
 

@@ -1,6 +1,6 @@
-# PersonalLedger Roadmap
+# Nett Roadmap
 
-PersonalLedger is an early-stage open-source iOS project.
+Nett is an early-stage open-source iOS project.
 
 This roadmap describes intended work and is not a release commitment.
 

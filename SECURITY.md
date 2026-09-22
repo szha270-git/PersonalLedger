@@ -1,6 +1,6 @@
 # Security Policy
 
-PersonalLedger may handle sensitive financial information.
+Nett may handle sensitive financial information.
 
 ## Reporting security issues
 

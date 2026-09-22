@@ -1,18 +1,20 @@
-# PersonalLedger
+# Nett
 
-A privacy-focused personal finance ledger and statement importer for iOS.
+Your money, made clear.
+
+Nett is a privacy-focused personal finance ledger and statement importer for iOS.
 
 > **Project status:** Early-stage / pre-release.
 
-## Why PersonalLedger?
+## Why Nett?
 
 People who use multiple bank accounts and credit cards often have financial information spread across different statements, apps, and formats.
 
-PersonalLedger is being developed to make it easier to import, organise, and review that information without requiring mandatory direct bank-account connections.
+Nett is being developed to make it easier to import, organise, and review that information without requiring mandatory direct bank-account connections.
 
 ## Goals
 
-PersonalLedger aims to provide:
+Nett aims to provide:
 
 - bank and credit-card statement importing;
 - transaction normalisation across different statement formats;
@@ -36,7 +38,7 @@ Test fixtures must use synthetic or thoroughly anonymised data.
 
 ## Current status
 
-PersonalLedger is under active development. The current source includes:
+Nett is under active development. The current source includes:
 
 - SwiftUI screens for home, transactions, accounts, and settings;
 - SwiftData models for accounts, transactions, categories, and merchant-category rules;

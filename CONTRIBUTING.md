@@ -1,8 +1,8 @@
-# Contributing to PersonalLedger
+# Contributing to Nett
 
 Thanks for your interest in contributing.
 
-PersonalLedger is currently an early-stage project, so small and focused contributions are preferred.
+Nett is currently an early-stage project, so small and focused contributions are preferred.
 
 ## Privacy requirements
 

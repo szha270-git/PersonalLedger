@@ -551,7 +551,7 @@ private struct HomeEmptyState: View {
 
     var body: some View {
         ContentUnavailableView {
-            Label("PersonalLedger", systemImage: "chart.pie")
+            Label("Nett", systemImage: "chart.pie")
         } description: {
             Text("Your finances, locally. Add an account and import your first statement to start building your dashboard.")
         } actions: {

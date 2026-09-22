@@ -222,7 +222,7 @@ private enum OnboardingPage: Int, CaseIterable, Identifiable {
     var title: LocalizedStringResource {
         switch self {
         case .welcome:
-            "PersonalLedger"
+            "Nett"
         case .statementImport:
             "Import and understand"
         case .privacy:
@@ -233,7 +233,7 @@ private enum OnboardingPage: Int, CaseIterable, Identifiable {
     var message: LocalizedStringResource {
         switch self {
         case .welcome:
-            "Understand your money without giving up your financial data."
+            "Your money, made clear."
         case .statementImport:
             "Import a bank statement, review the transactions, and organise your spending in one local ledger."
         case .privacy:
