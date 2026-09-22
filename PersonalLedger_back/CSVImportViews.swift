@@ -272,7 +272,7 @@ private struct PDFTextDebugPreview: View {
     }
 }
 
-private struct CSVImportFlowView: View {
+struct CSVImportFlowView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
@@ -287,8 +287,16 @@ private struct CSVImportFlowView: View {
     @State private var candidates: [ImportedTransactionCandidate] = []
     @State private var selectedAccountID: UUID?
     @State private var bulkCategoryID: UUID?
+    @State private var isBulkCategoryPickerPresented = false
+    @State private var editingCandidate: ImportCandidateSelection?
+    @State private var isCreatingDestinationAccount = false
     @State private var skippedRowCount = 0
     @State private var errorMessage: String?
+    @AppStorage(TransactionAISettings.useAppleIntelligenceKey)
+    private var usesAppleIntelligenceSuggestions = false
+    @State private var aiEnrichmentState: TransactionAIEnrichmentRunState = .idle
+
+    private let transactionEnricher = AppleFoundationModelTransactionEnricher()
 
     let onCompletion: (String) -> Void
 
@@ -301,7 +309,7 @@ private struct CSVImportFlowView: View {
     }
 
     private var canConfirm: Bool {
-        !includedCandidates.isEmpty && includedCandidates.allSatisfy { $0.selectedAccountID != nil }
+        ImportReviewService.canConfirmImport(candidates)
     }
 
     private var duplicateCount: Int {
@@ -310,6 +318,38 @@ private struct CSVImportFlowView: View {
 
     private var uncategorisedCount: Int {
         includedCandidates.filter { $0.proposedCategoryID == nil }.count
+    }
+
+    private var reviewSummary: ImportReviewSummary {
+        ImportReviewService.summary(for: candidates)
+    }
+
+    private var readyCandidates: [ImportedTransactionCandidate] {
+        candidates.filter { ImportReviewService.state(for: $0) == .ready }
+    }
+
+    private var needsAttentionCandidates: [ImportedTransactionCandidate] {
+        candidates.filter {
+            if case .needsAttention = ImportReviewService.state(for: $0) {
+                return true
+            }
+            return false
+        }
+    }
+
+    private var selectedAccount: Account? {
+        accounts.first { $0.id == selectedAccountID }
+    }
+
+    private var importedAccountSuggestion: ImportedAccountSuggestion? {
+        analysis?.accountSuggestion
+    }
+
+    private var matchingDestinationAccounts: [Account] {
+        ImportedAccountSuggestionService.exactMatches(
+            for: importedAccountSuggestion,
+            among: activeAccounts
+        )
     }
 
     var body: some View {
@@ -375,10 +415,34 @@ private struct CSVImportFlowView: View {
     private var importReview: some View {
         List {
             Section {
-                Picker("Import into", selection: $selectedAccountID) {
-                    Text("Choose an account").tag(UUID?.none)
-                    ForEach(activeAccounts) { account in
-                        Text(account.name).tag(Optional(account.id))
+                if activeAccounts.isEmpty {
+                    ContentUnavailableView {
+                        Label("No account available", systemImage: "building.columns")
+                    } description: {
+                        Text("Create an account to import these transactions.")
+                    } actions: {
+                        Button("Create Account") {
+                            isCreatingDestinationAccount = true
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                } else {
+                    Picker("Import into", selection: $selectedAccountID) {
+                        Text("Choose an account").tag(UUID?.none)
+                        ForEach(activeAccounts) { account in
+                            Text(destinationAccountLabel(for: account)).tag(Optional(account.id))
+                        }
+                    }
+
+                    if selectedAccountID == nil, importedAccountSuggestion != nil,
+                       matchingDestinationAccounts.isEmpty {
+                        Text("No matching account found")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Button("Create New Account…") {
+                        isCreatingDestinationAccount = true
                     }
                 }
 
@@ -391,54 +455,74 @@ private struct CSVImportFlowView: View {
                     .foregroundStyle(.secondary)
                 }
             } header: {
-                Text("Destination")
+                Text("Import into")
             } footer: {
-                Text("Potential duplicates are excluded initially but can be included after you check them.")
+                if selectedAccountID == nil {
+                    Text("Choose a destination account before importing. Transactions can still be inspected without selecting one.")
+                } else {
+                    Text("Potential duplicates remain excluded unless you explicitly include them after review.")
+                }
             }
 
             Section("Import summary") {
-                LabeledContent("Read", value: candidates.count, format: .number)
-                LabeledContent("Will import", value: includedCandidates.count, format: .number)
-                if duplicateCount > 0 {
-                    Label("\(duplicateCount) potential duplicate(s) excluded", systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                }
-                if uncategorisedCount > 0 {
-                    Label("\(uncategorisedCount) transaction(s) need a category", systemImage: "tag")
+                ImportSummaryView(summary: reviewSummary)
+
+                if let message = aiEnrichmentState.reviewMessage {
+                    Label(message, systemImage: "apple.intelligence")
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
             }
 
             if uncategorisedCount > 0 {
                 Section {
-                    Picker("Set category for uncategorised", selection: $bulkCategoryID) {
-                        Text("Choose a category").tag(UUID?.none)
-                        ForEach(categories) { category in
-                            Text(category.name).tag(Optional(category.id))
+                    Button("Categorise \(uncategorisedCount) uncategorised") {
+                        isBulkCategoryPickerPresented = true
+                    }
+                }
+                .confirmationDialog(
+                    "Set a category for uncategorised transactions",
+                    isPresented: $isBulkCategoryPickerPresented,
+                    titleVisibility: .visible
+                ) {
+                    ForEach(categories) { category in
+                        Button(category.name) {
+                            bulkCategoryID = category.id
                         }
                     }
-                } header: {
-                    Text("Categorise remaining")
-                } footer: {
-                    Text("This only changes rows that do not already have a suggested category.")
+                } message: {
+                    Text("This applies only to included transactions without a proposed category.")
                 }
             }
 
-            Section("Review \(candidates.count) transaction(s)") {
-                ForEach($candidates) { $candidate in
-                    ImportedTransactionReviewRow(
-                        candidate: $candidate,
-                        categories: categories,
-                        isPotentialDuplicate: isPotentialDuplicate(candidate)
+            if !needsAttentionCandidates.isEmpty {
+                Section("Needs Attention (\(needsAttentionCandidates.count))") {
+                    ForEach(needsAttentionCandidates) { candidate in
+                        NeedsAttentionImportTransactionRow(
+                            candidate: candidate,
+                            issue: reviewIssue(for: candidate),
+                            categoryName: categoryName(for: candidate),
+                            currencyCode: selectedAccount?.currency,
+                            onEdit: { editingCandidate = ImportCandidateSelection(id: candidate.id) }
+                        )
+                    }
+                }
+            }
+
+            Section("Ready to Import (\(readyCandidates.count))") {
+                ForEach(readyCandidates) { candidate in
+                    CompactImportTransactionRow(
+                        candidate: candidate,
+                        categoryName: categoryName(for: candidate),
+                        currencyCode: selectedAccount?.currency,
+                        hasAISuggestion: candidate.aiCategorySuggestion != nil || candidate.aiMerchantNameSuggestion != nil,
+                        onEdit: { editingCandidate = ImportCandidateSelection(id: candidate.id) }
                     )
                 }
             }
         }
         .onChange(of: selectedAccountID) { _, newAccountID in
-            for index in candidates.indices {
-                candidates[index].selectedAccountID = newAccountID
-            }
-            applyDuplicateRecommendations()
+            applyDestinationAccount(newAccountID)
         }
         .onChange(of: bulkCategoryID) { _, newCategoryID in
             guard let newCategoryID else {
@@ -459,6 +543,41 @@ private struct CSVImportFlowView: View {
             .padding()
             .background(.bar)
             .disabled(!canConfirm)
+        }
+        .sheet(item: $editingCandidate) { selection in
+            if let index = candidates.firstIndex(where: { $0.id == selection.id }) {
+                NavigationStack {
+                    ImportTransactionEditView(
+                        candidate: $candidates[index],
+                        categories: categories
+                    )
+                    .navigationTitle("Edit transaction")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") {
+                                editingCandidate = nil
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $isCreatingDestinationAccount) {
+            AccountEditorView(
+                account: nil,
+                prefill: importedAccountSuggestion,
+                onSaved: selectNewDestinationAccount
+            )
+        }
+        .onChange(of: editingCandidate) { _, newValue in
+            if newValue == nil {
+                applyDuplicateRecommendations()
+            }
+        }
+        .task {
+            TransactionAISettings.configureDefault(using: transactionEnricher.availability())
+            beginAIEnrichmentIfNeeded()
         }
     }
 
@@ -508,13 +627,26 @@ private struct CSVImportFlowView: View {
             )
             var parsedCandidates = result.candidates
             let categorySuggestions = try MerchantCategoryRuleService.suggestions(in: modelContext)
-            for index in parsedCandidates.indices {
-                let merchantKey = MerchantCategoryRuleService.normalizedMerchantKey(for: parsedCandidates[index].description)
-                parsedCandidates[index].proposedCategoryID = categorySuggestions[merchantKey]
-            }
+            ImportCategorySuggestionService.applySuggestions(
+                to: &parsedCandidates,
+                merchantRuleSuggestions: categorySuggestions,
+                categories: categories
+            )
+            #if DEBUG
+            reportDeterministicCategoryDiagnostics(
+                for: parsedCandidates,
+                merchantRuleSuggestions: categorySuggestions
+            )
+            #endif
             candidates = parsedCandidates
             skippedRowCount = result.skippedRowCount
-            applyDuplicateRecommendations()
+            if selectedAccountID == nil, matchingDestinationAccounts.count == 1,
+               let matchingAccount = matchingDestinationAccounts.first {
+                selectDestinationAccount(matchingAccount.id)
+            } else {
+                applyDuplicateRecommendations()
+                beginAIEnrichmentIfNeeded()
+            }
 
             if candidates.isEmpty {
                 errorMessage = "No transactions could be read with this column mapping."
@@ -525,27 +657,185 @@ private struct CSVImportFlowView: View {
     }
 
     private func isPotentialDuplicate(_ candidate: ImportedTransactionCandidate) -> Bool {
-        guard let accountID = candidate.selectedAccountID else {
-            return false
-        }
-
-        return existingTransactions.contains { transaction in
-            transaction.account?.id == accountID &&
-            (transaction.importIdentifier == candidate.importIdentifier ||
-                (transaction.amount == candidate.amount &&
-                 transaction.merchantDescription
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .caseInsensitiveCompare(candidate.description.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame &&
-                 abs(transaction.transactionDate.timeIntervalSince(candidate.date)) < 86_400))
-        }
+        TransactionDuplicateDetector.isPotentialDuplicate(candidate, among: existingTransactions)
     }
 
     private func applyDuplicateRecommendations() {
-        for index in candidates.indices where isPotentialDuplicate(candidates[index]) {
-            candidates[index].status = .potentialDuplicate
-            candidates[index].isIncluded = false
+        ImportReviewService.applyDuplicateRecommendations(
+            to: &candidates,
+            isPotentialDuplicate: isPotentialDuplicate
+        )
+    }
+
+    private func selectNewDestinationAccount(_ account: Account) {
+        selectDestinationAccount(account.id)
+    }
+
+    private func selectDestinationAccount(_ accountID: UUID?) {
+        selectedAccountID = accountID
+        applyDestinationAccount(accountID)
+    }
+
+    private func applyDestinationAccount(_ accountID: UUID?) {
+        ImportDestinationAccountService.assign(
+            accountID: accountID,
+            to: &candidates
+        )
+        applyDuplicateRecommendations()
+        beginAIEnrichmentIfNeeded()
+    }
+
+    private func destinationAccountLabel(for account: Account) -> String {
+        guard let lastFourDigits = account.lastFourDigits, !lastFourDigits.isEmpty else {
+            return account.name
+        }
+        return "\(account.name) •••• \(lastFourDigits)"
+    }
+
+    /// Parsing and deterministic category rules have already completed when this runs. The
+    /// bounded, sequential requests keep the review screen responsive and never delay import.
+    private func beginAIEnrichmentIfNeeded() {
+        guard !candidates.isEmpty else {
+            return
+        }
+
+        let availability = transactionEnricher.availability()
+        TransactionAISettings.configureDefault(using: availability)
+
+        guard usesAppleIntelligenceSuggestions else {
+            aiEnrichmentState = .disabled
+            return
+        }
+        guard availability.isAvailable else {
+            for index in candidates.indices where TransactionAIEnrichmentPolicy.shouldRequest(for: candidates[index]) {
+                candidates[index].aiEnrichmentState = .unavailable
+            }
+            aiEnrichmentState = .usingStandardCategorisation(
+                availability.standardCategorisationMessage ?? "Apple Intelligence is unavailable — using standard categorisation."
+            )
+            return
+        }
+
+        var workItems: [(TransactionAIEnrichmentSnapshot, TransactionAIEnrichmentRequest)] = []
+        for index in candidates.indices {
+            guard TransactionAIEnrichmentPolicy.shouldRequest(for: candidates[index]) else {
+                continue
+            }
+
+            candidates[index].aiEnrichmentState = .pending
+            let candidate = candidates[index]
+            workItems.append((
+                TransactionAIEnrichmentSnapshot(candidate: candidate),
+                TransactionAIEnrichmentRequest(
+                    displayMerchantName: candidate.description,
+                    originalBankDescription: candidate.originalBankDescription,
+                    sourceCategorySuggestion: candidate.sourceCategorySuggestion,
+                    transactionDirection: candidate.amount < 0 ? "outgoing" : "incoming",
+                    allowedCategoryNames: categories.map(\.name),
+                    allowsMerchantNameCleanup: TransactionAIEnrichmentPolicy.allowsMerchantNameCleanup(
+                        for: candidate
+                    )
+                )
+            ))
+        }
+
+        guard !workItems.isEmpty else {
+            aiEnrichmentState = .completed(enriched: 0, considered: 0, failures: 0)
+            return
+        }
+
+        aiEnrichmentState = .categorising(total: workItems.count)
+        let categorySnapshot = categories
+
+        Task {
+            var enrichedCount = 0
+            var failureCount = 0
+
+            for (snapshot, request) in workItems {
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                do {
+                    let enrichment = try await transactionEnricher.enrich(request)
+                    guard let index = candidates.firstIndex(where: { $0.id == snapshot.id }),
+                          snapshot.matches(candidates[index])
+                    else {
+                        continue
+                    }
+
+                    if TransactionAIEnrichmentPolicy.apply(
+                        enrichment,
+                        to: &candidates[index],
+                        categories: categorySnapshot
+                    ) {
+                        enrichedCount += 1
+                    }
+                } catch {
+                    if let index = candidates.firstIndex(where: { $0.id == snapshot.id }),
+                       snapshot.matches(candidates[index]) {
+                        candidates[index].aiEnrichmentState = .failed
+                    }
+                    // The deterministic import path remains valid if one local model request fails.
+                    failureCount += 1
+                }
+            }
+
+            aiEnrichmentState = .completed(
+                enriched: enrichedCount,
+                considered: workItems.count,
+                failures: failureCount
+            )
+
+            #if DEBUG
+            let noSuggestionCount = workItems.count - enrichedCount - failureCount
+            debugPrint(
+                "AI enrichment summary: \(candidates.count) parsed; \(candidates.count - workItems.count) skipped because deterministic categorisation or validation applied; \(workItems.count) sent; \(enrichedCount) enriched; \(noSuggestionCount) no suggestion; \(failureCount) failed; 0 AI-caused review states."
+            )
+            reportFinalCategoryDiagnostics()
+            #endif
         }
     }
+
+    #if DEBUG
+    /// Category-level diagnostics deliberately exclude merchant names and raw bank descriptions.
+    private func reportDeterministicCategoryDiagnostics(
+        for candidates: [ImportedTransactionCandidate],
+        merchantRuleSuggestions: [String: UUID]
+    ) {
+        let availability = transactionEnricher.availability()
+        for sourceCategory in Set(candidates.compactMap(\.sourceCategorySuggestion)).sorted() {
+            let matchingCandidates = candidates.filter { $0.sourceCategorySuggestion == sourceCategory }
+            let merchantRuleMatches = matchingCandidates.filter {
+                let merchantKey = MerchantCategoryRuleService.normalizedMerchantKey(for: $0.description)
+                return merchantRuleSuggestions[merchantKey] != nil
+            }.count
+            let deterministicMatches = matchingCandidates.filter { $0.proposedCategoryID != nil }.count
+            let eligibleAfterAccountSelection = matchingCandidates.filter {
+                $0.status == .ready &&
+                    $0.proposedCategoryID == nil &&
+                    !$0.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }.count
+            debugPrint(
+                "Category diagnostic [\(sourceCategory)]: \(matchingCandidates.count) rows; \(merchantRuleMatches) merchant-rule matches; \(deterministicMatches) deterministic local matches; \(eligibleAfterAccountSelection) AI-eligible after account selection; model \(availability)."
+            )
+        }
+    }
+
+    private func reportFinalCategoryDiagnostics() {
+        for sourceCategory in Set(candidates.compactMap(\.sourceCategorySuggestion)).sorted() {
+            let matchingCandidates = candidates.filter { $0.sourceCategorySuggestion == sourceCategory }
+            let aiEnriched = matchingCandidates.filter { $0.aiEnrichmentState == .enriched }.count
+            let aiNoSuggestion = matchingCandidates.filter { $0.aiEnrichmentState == .noSuggestion }.count
+            let aiUnavailable = matchingCandidates.filter { $0.aiEnrichmentState == .unavailable }.count
+            let aiFailed = matchingCandidates.filter { $0.aiEnrichmentState == .failed }.count
+            let finalCategories = matchingCandidates.filter { $0.proposedCategoryID != nil }.count
+            debugPrint(
+                "Category diagnostic [\(sourceCategory)]: AI enriched \(aiEnriched); no suggestion or invalid \(aiNoSuggestion); unavailable \(aiUnavailable); failed \(aiFailed); final local category IDs \(finalCategories)."
+            )
+        }
+    }
+    #endif
 
     private func confirmImport() {
         let importedCount = includedCandidates.count
@@ -558,6 +848,7 @@ private struct CSVImportFlowView: View {
             let transaction = Transaction(
                 transactionDate: candidate.date,
                 merchantDescription: candidate.description,
+                originalBankDescription: candidate.originalBankDescription,
                 amount: candidate.amount,
                 transactionType: TransactionImportClassifier.transactionType(for: candidate),
                 category: category,
@@ -587,6 +878,17 @@ private struct CSVImportFlowView: View {
         }
     }
 
+    private func reviewIssue(for candidate: ImportedTransactionCandidate) -> ImportTransactionReviewIssue {
+        guard case let .needsAttention(issue) = ImportReviewService.state(for: candidate) else {
+            return .parserNeedsReview
+        }
+        return issue
+    }
+
+    private func categoryName(for candidate: ImportedTransactionCandidate) -> String? {
+        categories.first { $0.id == candidate.proposedCategoryID }?.name
+    }
+
     private func resetImport() {
         analysis = nil
         mapping = CSVColumnMapping()
@@ -594,6 +896,7 @@ private struct CSVImportFlowView: View {
         selectedAccountID = nil
         bulkCategoryID = nil
         skippedRowCount = 0
+        aiEnrichmentState = .idle
     }
 }
 
@@ -637,51 +940,200 @@ private struct CSVColumnMappingView: View {
     }
 }
 
-private struct ImportedTransactionReviewRow: View {
-    @Binding var candidate: ImportedTransactionCandidate
-    let categories: [Category]
-    let isPotentialDuplicate: Bool
+private struct ImportCandidateSelection: Identifiable, Equatable {
+    let id: UUID
+}
+
+private struct ImportSummaryView: View {
+    let summary: ImportReviewSummary
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Toggle("Include", isOn: $candidate.isIncluded)
-                .font(.subheadline.weight(.semibold))
+        VStack(alignment: .leading, spacing: 6) {
+            LabeledContent("Transactions recognised", value: summary.recognisedCount, format: .number)
+            LabeledContent("Ready to import", value: summary.readyCount, format: .number)
+            LabeledContent("Needs attention", value: summary.needsAttentionCount, format: .number)
 
-            if candidate.isIncluded {
-                TextField("Description", text: $candidate.description)
-
-                DatePicker(
-                    "Date",
-                    selection: $candidate.date,
-                    displayedComponents: .date
+            if summary.duplicateCount > 0 {
+                Label(
+                    "\(summary.duplicateCount) possible duplicate(s) excluded",
+                    systemImage: "exclamationmark.triangle"
                 )
+                .foregroundStyle(.orange)
+            }
 
+            if summary.uncategorisedCount > 0 {
+                Label(
+                    "\(summary.uncategorisedCount) uncategorised",
+                    systemImage: "tag"
+                )
+                .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private struct CompactImportTransactionRow: View {
+    let candidate: ImportedTransactionCandidate
+    let categoryName: String?
+    let currencyCode: String?
+    let hasAISuggestion: Bool
+    let onEdit: () -> Void
+
+    var body: some View {
+        Button(action: onEdit) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(candidate.description)
+                        .font(.body.weight(.medium))
+                        .lineLimit(1)
+
+                    if let categoryName {
+                        Text(categoryName)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Uncategorised")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if hasAISuggestion {
+                        Text("Suggested by Apple Intelligence")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text(candidate.date, format: .dateTime.day().month(.abbreviated))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 8)
+
+                VStack(alignment: .trailing, spacing: 3) {
+                    CandidateAmountText(amount: candidate.amount, currencyCode: currencyCode)
+                    Label("Ready", systemImage: "checkmark.circle")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .accessibilityLabel("\(candidate.description), ready to import")
+        .accessibilityHint("Double-tap to inspect or edit this transaction")
+    }
+}
+
+private struct NeedsAttentionImportTransactionRow: View {
+    let candidate: ImportedTransactionCandidate
+    let issue: ImportTransactionReviewIssue
+    let categoryName: String?
+    let currencyCode: String?
+    let onEdit: () -> Void
+
+    var body: some View {
+        Button(action: onEdit) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(candidate.description)
+                        .font(.body.weight(.medium))
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    CandidateAmountText(amount: candidate.amount, currencyCode: currencyCode)
+                }
+
+                Label(issue.title, systemImage: issue == .potentialDuplicate ? "exclamationmark.triangle" : "exclamationmark.circle")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.orange)
+
+                HStack(spacing: 4) {
+                    Text(candidate.date, format: .dateTime.day().month(.abbreviated))
+                    if let categoryName {
+                        Text("•")
+                        Text(categoryName)
+                    }
+                    if !candidate.isIncluded {
+                        Text("•")
+                        Text("Excluded")
+                    }
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .accessibilityLabel("\(candidate.description), needs attention: \(issue.title)")
+        .accessibilityHint("Double-tap to inspect and edit this transaction")
+    }
+}
+
+private struct CandidateAmountText: View {
+    let amount: Decimal
+    let currencyCode: String?
+
+    var body: some View {
+        Group {
+            if let currencyCode {
+                Text(amount, format: .currency(code: currencyCode))
+            } else {
+                Text(amount, format: .number)
+            }
+        }
+        .font(.subheadline.weight(.semibold))
+        .monospacedDigit()
+    }
+}
+
+private struct ImportTransactionEditView: View {
+    @Binding var candidate: ImportedTransactionCandidate
+    let categories: [Category]
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Include in import", isOn: $candidate.isIncluded)
+            }
+
+            Section("Transaction") {
+                TextField("Merchant or description", text: $candidate.description)
+                DatePicker("Date", selection: $candidate.date, displayedComponents: .date)
                 TextField("Amount", value: $candidate.amount, format: .number)
                     .keyboardType(.decimalPad)
-
                 Picker("Category", selection: $candidate.proposedCategoryID) {
                     Text("No category").tag(UUID?.none)
                     ForEach(categories) { category in
                         Text(category.name).tag(Optional(category.id))
                     }
                 }
+            }
 
-                if isPotentialDuplicate {
-                    Label("Potential duplicate", systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote.weight(.medium))
-                        .foregroundStyle(.orange)
-                } else if candidate.status == .needsReview {
-                    Label("Check this row", systemImage: "questionmark.circle")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+            if let originalBankDescription = candidate.originalBankDescription,
+               originalBankDescription.caseInsensitiveCompare(candidate.description) != .orderedSame {
+                Section("Source information") {
+                    LabeledContent("Original bank description", value: originalBankDescription)
+                    if let sourceCategorySuggestion = candidate.sourceCategorySuggestion {
+                        LabeledContent("Bank suggestion", value: sourceCategorySuggestion)
+                    }
+                    if let aiCategorySuggestion = candidate.aiCategorySuggestion {
+                        LabeledContent("Apple Intelligence suggestion", value: aiCategorySuggestion)
+                    }
                 }
-
-                Text(candidate.sourceText)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+            } else if let sourceCategorySuggestion = candidate.sourceCategorySuggestion {
+                Section("Source information") {
+                    LabeledContent("Bank suggestion", value: sourceCategorySuggestion)
+                    if let aiCategorySuggestion = candidate.aiCategorySuggestion {
+                        LabeledContent("Apple Intelligence suggestion", value: aiCategorySuggestion)
+                    }
+                }
+            } else if let aiCategorySuggestion = candidate.aiCategorySuggestion {
+                Section("Source information") {
+                    LabeledContent("Apple Intelligence suggestion", value: aiCategorySuggestion)
+                }
             }
         }
-        .padding(.vertical, 4)
     }
 }

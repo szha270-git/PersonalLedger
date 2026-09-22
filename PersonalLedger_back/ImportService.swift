@@ -27,6 +27,18 @@ struct ImportedTransactionCandidate: Identifiable {
     var description: String
     var amount: Decimal
     var balance: Decimal?
+    /// The raw description supplied by the financial institution, retained for auditability.
+    var originalBankDescription: String?
+    /// A bank-provided category label shown during review. It is never a local category by itself.
+    var sourceCategorySuggestion: String?
+    /// An optional, validated category proposal from the on-device language model.
+    /// This is review-only metadata and is never persisted as part of a Transaction.
+    var aiCategorySuggestion: String?
+    /// An optional conservative cleanup of the display merchant name.
+    /// The original bank description always remains unchanged.
+    var aiMerchantNameSuggestion: String?
+    /// Records optional AI enrichment progress independently from deterministic review status.
+    var aiEnrichmentState: AIEnrichmentState
     let sourceText: String
     var confidence: ImportCandidateConfidence
     var status: ImportCandidateStatus
@@ -41,6 +53,11 @@ struct ImportedTransactionCandidate: Identifiable {
         description: String,
         amount: Decimal,
         balance: Decimal? = nil,
+        originalBankDescription: String? = nil,
+        sourceCategorySuggestion: String? = nil,
+        aiCategorySuggestion: String? = nil,
+        aiMerchantNameSuggestion: String? = nil,
+        aiEnrichmentState: AIEnrichmentState = .notNeeded,
         sourceText: String,
         confidence: ImportCandidateConfidence,
         status: ImportCandidateStatus,
@@ -54,6 +71,11 @@ struct ImportedTransactionCandidate: Identifiable {
         self.description = description
         self.amount = amount
         self.balance = balance
+        self.originalBankDescription = originalBankDescription
+        self.sourceCategorySuggestion = sourceCategorySuggestion
+        self.aiCategorySuggestion = aiCategorySuggestion
+        self.aiMerchantNameSuggestion = aiMerchantNameSuggestion
+        self.aiEnrichmentState = aiEnrichmentState
         self.sourceText = sourceText
         self.confidence = confidence
         self.status = status
@@ -71,6 +93,9 @@ enum CSVColumnRole: String, CaseIterable, Identifiable {
     case credit
     case amount
     case balance
+    case merchantName
+    case originalBankDescription
+    case sourceCategory
 
     var id: String { rawValue }
 
@@ -88,6 +113,12 @@ enum CSVColumnRole: String, CaseIterable, Identifiable {
             "Amount"
         case .balance:
             "Balance"
+        case .merchantName:
+            "Merchant name"
+        case .originalBankDescription:
+            "Original bank description"
+        case .sourceCategory:
+            "Source category"
         }
     }
 }
@@ -99,6 +130,9 @@ struct CSVColumnMapping {
     var creditColumn: Int?
     var amountColumn: Int?
     var balanceColumn: Int?
+    var merchantNameColumn: Int?
+    var originalBankDescriptionColumn: Int?
+    var sourceCategoryColumn: Int?
 
     subscript(role: CSVColumnRole) -> Int? {
         get {
@@ -115,6 +149,12 @@ struct CSVColumnMapping {
                 amountColumn
             case .balance:
                 balanceColumn
+            case .merchantName:
+                merchantNameColumn
+            case .originalBankDescription:
+                originalBankDescriptionColumn
+            case .sourceCategory:
+                sourceCategoryColumn
             }
         }
         set {
@@ -131,6 +171,12 @@ struct CSVColumnMapping {
                 amountColumn = newValue
             case .balance:
                 balanceColumn = newValue
+            case .merchantName:
+                merchantNameColumn = newValue
+            case .originalBankDescription:
+                originalBankDescriptionColumn = newValue
+            case .sourceCategory:
+                sourceCategoryColumn = newValue
             }
         }
     }
@@ -147,6 +193,45 @@ struct CSVAnalysis {
     let rows: [[String]]
     let suggestedMapping: CSVColumnMapping
     let requiresManualMapping: Bool
+    /// Conservative metadata used only to prefill a destination-account editor.
+    let accountSuggestion: ImportedAccountSuggestion?
+}
+
+/// Safe, non-financial hints extracted from a CSV before the user creates or selects an account.
+/// It never includes a full account or card number.
+struct ImportedAccountSuggestion: Equatable {
+    var institutionName: String?
+    var suggestedName: String?
+    var accountType: AccountType?
+    var lastFourDigits: String?
+    var currency: String?
+}
+
+enum ImportedAccountSuggestionService {
+    /// Returns matching accounts only when both stable metadata values are available.
+    static func exactMatches(
+        for suggestion: ImportedAccountSuggestion?,
+        among accounts: [Account]
+    ) -> [Account] {
+        guard let suggestion,
+              let institutionName = normalised(suggestion.institutionName),
+              let lastFourDigits = suggestion.lastFourDigits,
+              !lastFourDigits.isEmpty
+        else {
+            return []
+        }
+
+        return accounts.filter {
+            normalised($0.institutionName) == institutionName &&
+                $0.lastFourDigits == lastFourDigits
+        }
+    }
+
+    private static func normalised(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let result = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return result.isEmpty ? nil : result
+    }
 }
 
 struct CSVParseResult {
@@ -876,7 +961,8 @@ struct CSVTransactionParser {
             headers: headers,
             rows: Array(rows.dropFirst()),
             suggestedMapping: suggestedMapping,
-            requiresManualMapping: !suggestedMapping.hasRequiredColumns
+            requiresManualMapping: !suggestedMapping.hasRequiredColumns,
+            accountSuggestion: accountSuggestion(headers: headers, rows: Array(rows.dropFirst()))
         )
     }
 
@@ -896,18 +982,26 @@ struct CSVTransactionParser {
             guard
                 let dateText = value(in: row, at: mapping.dateColumn),
                 let date = CSVDateParser.parse(dateText),
-                let description = value(in: row, at: mapping.descriptionColumn),
-                !description.isEmpty,
                 let amount = amount(in: row, mapping: mapping)
             else {
                 skippedRowCount += 1
                 continue
             }
 
+            let merchantName = value(in: row, at: mapping.merchantNameColumn)
+            let originalBankDescription = value(in: row, at: mapping.originalBankDescriptionColumn)
+            let genericDescription = value(in: row, at: mapping.descriptionColumn)
+            guard let description = merchantName ?? genericDescription ?? originalBankDescription else {
+                skippedRowCount += 1
+                continue
+            }
+
             let balance = value(in: row, at: mapping.balanceColumn).flatMap(CSVAmountParser.parse)
+            let sourceCategorySuggestion = value(in: row, at: mapping.sourceCategoryColumn)
             let confidence: ImportCandidateConfidence = mapping.amountColumn == nil ? .medium : .high
             let status: ImportCandidateStatus = confidence == .high ? .ready : .needsReview
-            let identifier = "\(date.timeIntervalSince1970)|\(description.lowercased())|\(amount)"
+            let stableSourceDescription = originalBankDescription ?? description
+            let identifier = "\(date.timeIntervalSince1970)|\(stableSourceDescription.lowercased())|\(amount)"
 
             candidates.append(
                 ImportedTransactionCandidate(
@@ -915,6 +1009,8 @@ struct CSVTransactionParser {
                     description: description,
                     amount: amount,
                     balance: balance,
+                    originalBankDescription: originalBankDescription,
+                    sourceCategorySuggestion: sourceCategorySuggestion,
                     sourceText: row.joined(separator: " | "),
                     confidence: confidence,
                     status: status,
@@ -929,12 +1025,21 @@ struct CSVTransactionParser {
 
     private func suggestMapping(for headers: [String]) -> CSVColumnMapping {
         var mapping = CSVColumnMapping()
+        let normalisedHeaders = headers.map(normalisedHeader)
 
-        for (index, header) in headers.enumerated() {
+        // NAB supplies a clean merchant label separately from its raw transaction details.
+        // These columns are optional so generic CSV imports retain their current workflow.
+        mapping.merchantNameColumn = normalisedHeaders.firstIndex { $0 == "merchant name" }
+        mapping.originalBankDescriptionColumn = normalisedHeaders.firstIndex {
+            $0 == "transaction details" || $0 == "original bank description"
+        }
+        mapping.sourceCategoryColumn = normalisedHeaders.firstIndex {
+            $0 == "category" || $0 == "source category"
+        }
+        mapping.descriptionColumn = mapping.merchantNameColumn
+
+        for (index, header) in normalisedHeaders.enumerated() {
             let normalisedHeader = header
-                .lowercased()
-                .replacingOccurrences(of: "_", with: " ")
-                .replacingOccurrences(of: "-", with: " ")
 
             if mapping.dateColumn == nil,
                containsAny(normalisedHeader, terms: ["date", "transaction date", "posted"]) {
@@ -958,6 +1063,59 @@ struct CSVTransactionParser {
         }
 
         return mapping
+    }
+
+    private func accountSuggestion(headers: [String], rows: [[String]]) -> ImportedAccountSuggestion? {
+        let normalisedHeaders = headers.map(normalisedHeader)
+        guard
+            let accountNumberColumn = normalisedHeaders.firstIndex(where: { $0 == "account number" }),
+            normalisedHeaders.contains("transaction details"),
+            normalisedHeaders.contains("merchant name")
+        else {
+            return nil
+        }
+
+        let lastFourDigits = rows
+            .compactMap { row in value(in: row, at: accountNumberColumn) }
+            .compactMap(lastFourDigitsFromNABAccountLabel)
+            .first
+
+        let transactionTypeColumn = normalisedHeaders.firstIndex { $0 == "transaction type" }
+        let isCreditCard = rows.contains { row in
+            guard let transactionType = value(in: row, at: transactionTypeColumn) else {
+                return false
+            }
+            return transactionType.range(of: "credit card", options: .caseInsensitive) != nil
+        }
+
+        guard lastFourDigits != nil || isCreditCard else {
+            return nil
+        }
+
+        return ImportedAccountSuggestion(
+            institutionName: "NAB",
+            suggestedName: isCreditCard ? "NAB Credit Card" : "NAB Account",
+            accountType: isCreditCard ? .creditCard : nil,
+            lastFourDigits: lastFourDigits,
+            currency: nil
+        )
+    }
+
+    private func lastFourDigitsFromNABAccountLabel(_ value: String) -> String? {
+        guard let expression = try? NSRegularExpression(
+            pattern: "(?:card|account)\\s+ending\\s+(\\d{4})",
+            options: .caseInsensitive
+        ) else {
+            return nil
+        }
+        let range = NSRange(value.startIndex..., in: value)
+        guard
+            let result = expression.firstMatch(in: value, range: range),
+            let digitsRange = Range(result.range(at: 1), in: value)
+        else {
+            return nil
+        }
+        return String(value[digitsRange])
     }
 
     private func amount(in row: [String], mapping: CSVColumnMapping) -> Decimal? {
@@ -990,6 +1148,14 @@ struct CSVTransactionParser {
         terms.contains { value.contains($0) }
     }
 
+    private func normalisedHeader(_ header: String) -> String {
+        header
+            .lowercased()
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func abs(_ value: Decimal) -> Decimal {
         value < 0 ? -value : value
     }
@@ -1004,17 +1170,26 @@ struct CSVTransactionParser {
 
 enum CSVDateParser {
     nonisolated static var formats: [String] {
-        ["dd/MM/yyyy", "d/MM/yyyy", "yyyy-MM-dd"]
+        ["dd/MM/yyyy", "d/MM/yyyy", "yyyy-MM-dd", "dd MMM yy", "d MMM yy"]
     }
 
     nonisolated static func parse(_ value: String) -> Date? {
         for format in formats {
             let formatter = DateFormatter()
             formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.calendar = Calendar(identifier: .gregorian)
+            let calendar = Calendar(identifier: .gregorian)
+            formatter.calendar = calendar
             formatter.dateFormat = format
 
             if let date = formatter.date(from: value.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                if format.hasSuffix("yy"),
+                   let shortYear = calendar.dateComponents([.year], from: date).year,
+                   shortYear < 100 {
+                    // NAB uses a two-digit year. Keep it in the conventional 1950–2049 window.
+                    var components = calendar.dateComponents([.month, .day], from: date)
+                    components.year = shortYear < 50 ? shortYear + 2000 : shortYear + 1900
+                    return calendar.date(from: components)
+                }
                 return date
             }
         }
@@ -1071,12 +1246,12 @@ private enum CSVReader {
             } else if character == delimiter, !isInsideQuotes {
                 row.append(field)
                 field = ""
-            } else if character == "\n", !isInsideQuotes {
+            } else if character.isNewline, !isInsideQuotes {
                 row.append(field)
                 rows.append(row)
                 row = []
                 field = ""
-            } else if character != "\r" {
+            } else {
                 field.append(character)
             }
 

@@ -234,11 +234,12 @@ struct AccountDetailView: View {
     }
 }
 
-private struct AccountEditorView: View {
+struct AccountEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
     let account: Account?
+    private let onSaved: ((Account) -> Void)?
 
     @State private var name: String
     @State private var accountType: AccountType
@@ -255,14 +256,19 @@ private struct AccountEditorView: View {
     @State private var interestFreeDaysText: String
     @State private var hasInterestFreePeriod: Bool
 
-    init(account: Account?) {
+    init(
+        account: Account?,
+        prefill: ImportedAccountSuggestion? = nil,
+        onSaved: ((Account) -> Void)? = nil
+    ) {
         self.account = account
-        _name = State(initialValue: account?.name ?? "")
-        _accountType = State(initialValue: account?.accountType ?? .transactionAccount)
-        _institutionName = State(initialValue: account?.institutionName ?? "")
-        _lastFourDigits = State(initialValue: account?.lastFourDigits ?? "")
+        self.onSaved = onSaved
+        _name = State(initialValue: account?.name ?? prefill?.suggestedName ?? "")
+        _accountType = State(initialValue: account?.accountType ?? prefill?.accountType ?? .transactionAccount)
+        _institutionName = State(initialValue: account?.institutionName ?? prefill?.institutionName ?? "")
+        _lastFourDigits = State(initialValue: account?.lastFourDigits ?? prefill?.lastFourDigits ?? "")
         _openingBalanceText = State(initialValue: account?.openingBalance.formatted() ?? "0")
-        _currency = State(initialValue: account?.currency ?? "AUD")
+        _currency = State(initialValue: account?.currency ?? prefill?.currency ?? "AUD")
         _isArchived = State(initialValue: account?.isArchived ?? false)
         _statementBalanceText = State(initialValue: account?.creditCardStatementBalance?.formatted() ?? "")
         _minimumPaymentText = State(initialValue: account?.creditCardMinimumPayment?.formatted() ?? "")
@@ -370,6 +376,7 @@ private struct AccountEditorView: View {
             account.creditCardPaymentDueDate = accountType == .creditCard ? paymentDueDate : account.creditCardPaymentDueDate
             account.creditCardInterestFreeDays = accountType == .creditCard && hasInterestFreePeriod ? interestFreeDays : nil
             account.creditCardHasInterestFreePeriod = accountType == .creditCard && hasInterestFreePeriod
+            onSaved?(account)
         } else {
             let newAccount = Account(
                 name: name.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -387,6 +394,7 @@ private struct AccountEditorView: View {
                 creditCardHasInterestFreePeriod: accountType == .creditCard && hasInterestFreePeriod
             )
             modelContext.insert(newAccount)
+            onSaved?(newAccount)
         }
 
         dismiss()

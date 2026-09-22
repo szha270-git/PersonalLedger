@@ -2,6 +2,15 @@ import SwiftData
 import SwiftUI
 
 struct SettingsView: View {
+    @AppStorage(TransactionAISettings.useAppleIntelligenceKey)
+    private var usesAppleIntelligenceSuggestions = false
+
+    @State private var isOnboardingPresented = false
+    @State private var pendingReplayAction: FirstUseAction?
+    @State private var replayAction: FirstUseAction?
+
+    private let transactionEnricher = AppleFoundationModelTransactionEnricher()
+
     var body: some View {
         NavigationStack {
             List {
@@ -15,9 +24,54 @@ struct SettingsView: View {
                     Label("Financial data stays on this device", systemImage: "lock.fill")
                         .foregroundStyle(.secondary)
                 }
+
+                Section("Transaction suggestions") {
+                    Toggle("Use Apple Intelligence for transaction suggestions", isOn: $usesAppleIntelligenceSuggestions)
+                        .disabled(!transactionEnricher.availability().isAvailable)
+
+                    Text(transactionSuggestionDescription)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("About") {
+                    Button("Replay introduction") {
+                        isOnboardingPresented = true
+                    }
+                }
             }
             .navigationTitle("Settings")
+            .task {
+                TransactionAISettings.configureDefault(using: transactionEnricher.availability())
+            }
+            .sheet(isPresented: $isOnboardingPresented, onDismiss: presentPendingReplayAction) {
+                OnboardingView(
+                    onDismiss: { isOnboardingPresented = false },
+                    onAction: { action in
+                        pendingReplayAction = action
+                        isOnboardingPresented = false
+                    }
+                )
+            }
+            .sheet(item: $replayAction) { action in
+                switch action {
+                case .importStatement:
+                    CSVImportFlowView { _ in }
+                case .addAccount:
+                    AccountEditorView(account: nil)
+                }
+            }
         }
+    }
+
+    private var transactionSuggestionDescription: String {
+        transactionEnricher.availability().standardCategorisationMessage ??
+            "Uses Apple Intelligence on this device only for optional merchant and category suggestions."
+    }
+
+    private func presentPendingReplayAction() {
+        replayAction = pendingReplayAction
+        pendingReplayAction = nil
     }
 }
 

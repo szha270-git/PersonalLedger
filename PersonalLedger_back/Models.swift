@@ -227,6 +227,9 @@ final class Transaction: Identifiable {
     var transactionDate: Date
     var postedDate: Date?
     var merchantDescription: String
+    /// The raw descriptor received from a bank import, when it differs from the display merchant.
+    /// Optional to keep existing local records compatible with this additive SwiftData schema change.
+    var originalBankDescription: String?
     var amount: Decimal
     private var transactionTypeValue: String
     var notes: String?
@@ -252,6 +255,7 @@ final class Transaction: Identifiable {
         transactionDate: Date,
         postedDate: Date? = nil,
         merchantDescription: String,
+        originalBankDescription: String? = nil,
         amount: Decimal,
         transactionType: TransactionType,
         category: Category? = nil,
@@ -265,6 +269,7 @@ final class Transaction: Identifiable {
         self.transactionDate = transactionDate
         self.postedDate = postedDate
         self.merchantDescription = merchantDescription
+        self.originalBankDescription = originalBankDescription
         self.amount = amount
         self.transactionTypeValue = transactionType.rawValue
         self.category = category
