@@ -477,7 +477,12 @@ private struct RecentTransactionsSection: View {
 
             VStack(spacing: 0) {
                 ForEach(Array(transactions.enumerated()), id: \.element.id) { index, transaction in
-                    RecentTransactionRow(transaction: transaction)
+                    NavigationLink {
+                        TransactionDetailView(transaction: transaction)
+                    } label: {
+                        RecentTransactionRow(transaction: transaction)
+                    }
+                    .buttonStyle(.plain)
                     if index < transactions.count - 1 {
                         Divider()
                             .padding(.leading, 52)

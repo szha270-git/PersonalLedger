@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import Ledger
 
@@ -801,6 +802,134 @@ struct LedgerTests {
         #expect(estimate.estimatedInterest == Decimal(string: "0.06"))
     }
 
+    @Test
+    func transactionDetailEditUpdatesCategoryAndLearnsUsingDisplayMerchant() throws {
+        let container = try inMemoryModelContainer()
+        let modelContext = ModelContext(container)
+        let account = Account(name: "NAB Card", accountType: .creditCard, institutionName: "NAB")
+        let shopping = Category(name: "Shopping")
+        let pets = Category(name: "Pets")
+        let transaction = Transaction(
+            transactionDate: .now,
+            merchantDescription: "Brisbane Pet Motel",
+            originalBankDescription: "MYLACO PTY LTD BOONDALL",
+            amount: -190,
+            transactionType: .expense,
+            category: shopping,
+            account: account,
+            source: .csvImport,
+            importIdentifier: "stable-import-id"
+        )
+        modelContext.insert(account)
+        modelContext.insert(shopping)
+        modelContext.insert(pets)
+        modelContext.insert(transaction)
+        try modelContext.save()
+
+        var draft = TransactionEditDraft(transaction: transaction)
+        draft.categoryID = pets.id
+        try TransactionEditService.save(draft, to: transaction, categories: [shopping, pets], in: modelContext)
+
+        #expect(transaction.category?.id == pets.id)
+        let rules = try modelContext.fetch(FetchDescriptor<MerchantCategoryRule>())
+        #expect(rules.count == 1)
+        #expect(rules[0].merchantKey == MerchantCategoryRuleService.normalizedMerchantKey(for: "Brisbane Pet Motel"))
+        #expect(rules[0].merchantKey != MerchantCategoryRuleService.normalizedMerchantKey(for: "MYLACO PTY LTD BOONDALL"))
+        #expect(rules[0].category?.id == pets.id)
+        #expect(transaction.originalBankDescription == "MYLACO PTY LTD BOONDALL")
+        #expect(transaction.importIdentifier == "stable-import-id")
+        #expect(transaction.source == .csvImport)
+    }
+
+    @Test
+    func transactionDetailMerchantEditPreservesSourceDataAndSupportsNilOriginalDescription() throws {
+        let container = try inMemoryModelContainer()
+        let modelContext = ModelContext(container)
+        let account = Account(name: "Everyday", accountType: .transactionAccount, institutionName: "Example")
+        let transaction = Transaction(
+            transactionDate: .now,
+            merchantDescription: "BRISBANE PET MOTEL",
+            originalBankDescription: nil,
+            amount: -25,
+            transactionType: .expense,
+            account: account,
+            source: .manual,
+            importIdentifier: "manual-record-id"
+        )
+        modelContext.insert(account)
+        modelContext.insert(transaction)
+        try modelContext.save()
+
+        var draft = TransactionEditDraft(transaction: transaction)
+        draft.merchantDescription = "  Brisbane Pet Motel  "
+        try TransactionEditService.save(draft, to: transaction, categories: [], in: modelContext)
+
+        #expect(transaction.merchantDescription == "Brisbane Pet Motel")
+        #expect(transaction.originalBankDescription == nil)
+        #expect(transaction.importIdentifier == "manual-record-id")
+        #expect(transaction.source == .manual)
+    }
+
+    @Test
+    func transactionDetailDraftCancelLeavesStoredTransactionUnchanged() {
+        let account = Account(name: "Everyday", accountType: .transactionAccount, institutionName: "Example")
+        let category = Category(name: "Shopping")
+        let transaction = Transaction(
+            transactionDate: .now,
+            merchantDescription: "Original merchant",
+            originalBankDescription: "RAW BANK DESCRIPTION",
+            amount: -12,
+            transactionType: .expense,
+            category: category,
+            account: account,
+            notes: "Original note",
+            source: .csvImport,
+            importIdentifier: "unchanged-import-id"
+        )
+
+        var draft = TransactionEditDraft(transaction: transaction)
+        draft.merchantDescription = "Unsaved merchant"
+        draft.categoryID = nil
+        draft.notes = "Unsaved note"
+
+        #expect(transaction.merchantDescription == "Original merchant")
+        #expect(transaction.category?.id == category.id)
+        #expect(transaction.notes == "Original note")
+        #expect(transaction.originalBankDescription == "RAW BANK DESCRIPTION")
+        #expect(transaction.importIdentifier == "unchanged-import-id")
+        #expect(transaction.amount == -12)
+        #expect(transaction.transactionDate != .distantPast)
+    }
+
+    @Test
+    func transactionDetailNotesSaveWithoutChangingImportMetadata() throws {
+        let container = try inMemoryModelContainer()
+        let modelContext = ModelContext(container)
+        let account = Account(name: "Everyday", accountType: .transactionAccount, institutionName: "Example")
+        let transaction = Transaction(
+            transactionDate: .now,
+            merchantDescription: "Example merchant",
+            originalBankDescription: "EXAMPLE RAW DESCRIPTION",
+            amount: -15,
+            transactionType: .expense,
+            account: account,
+            source: .pdfImport,
+            importIdentifier: "pdf-import-id"
+        )
+        modelContext.insert(account)
+        modelContext.insert(transaction)
+        try modelContext.save()
+
+        var draft = TransactionEditDraft(transaction: transaction)
+        draft.notes = "Remember to check this charge."
+        try TransactionEditService.save(draft, to: transaction, categories: [], in: modelContext)
+
+        #expect(transaction.notes == "Remember to check this charge.")
+        #expect(transaction.originalBankDescription == "EXAMPLE RAW DESCRIPTION")
+        #expect(transaction.importIdentifier == "pdf-import-id")
+        #expect(transaction.source == .pdfImport)
+    }
+
     private var interestFreeConditions: CreditCardInterestConditions {
         CreditCardInterestConditions(
             isEligibleForInterestFreePeriod: true,
@@ -815,6 +944,17 @@ struct LedgerTests {
             annualPercentageRate: 20,
             interestAccruingDays: 30,
             conditions: interestFreeConditions
+        )
+    }
+
+    private func inMemoryModelContainer() throws -> ModelContainer {
+        let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
+        return try ModelContainer(
+            for: Account.self,
+            Transaction.self,
+            Category.self,
+            MerchantCategoryRule.self,
+            configurations: configuration
         )
     }
 

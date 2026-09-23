@@ -70,6 +70,78 @@ enum MerchantCategoryRuleService {
     }
 }
 
+/// The editable portion of a transaction. Keeping it separate from the
+/// SwiftData model lets the detail editor discard changes safely on Cancel.
+struct TransactionEditDraft: Equatable {
+    var merchantDescription: String
+    var categoryID: UUID?
+    var notes: String
+
+    init(transaction: Transaction) {
+        merchantDescription = transaction.merchantDescription
+        categoryID = transaction.category?.id
+        notes = transaction.notes ?? ""
+    }
+}
+
+enum TransactionEditError: LocalizedError {
+    case emptyMerchant
+    case unavailableCategory
+
+    var errorDescription: String? {
+        switch self {
+        case .emptyMerchant:
+            "Enter a merchant name before saving."
+        case .unavailableCategory:
+            "That category is no longer available. Choose another category and try again."
+        }
+    }
+}
+
+/// Applies only user-editable transaction values. Import provenance and raw
+/// bank data intentionally remain untouched.
+enum TransactionEditService {
+    static func save(
+        _ draft: TransactionEditDraft,
+        to transaction: Transaction,
+        categories: [Category],
+        in modelContext: ModelContext
+    ) throws {
+        let merchantDescription = draft.merchantDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !merchantDescription.isEmpty else {
+            throw TransactionEditError.emptyMerchant
+        }
+
+        let category = try category(for: draft.categoryID, in: categories)
+        let didExplicitlyChangeCategory = transaction.category?.id != draft.categoryID
+        let notes = draft.notes.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        transaction.merchantDescription = merchantDescription
+        transaction.category = category
+        transaction.notes = notes.isEmpty ? nil : notes
+
+        if didExplicitlyChangeCategory, let category {
+            try MerchantCategoryRuleService.rememberCategory(
+                for: merchantDescription,
+                category: category,
+                in: modelContext
+            )
+        }
+
+        try modelContext.save()
+    }
+
+    private static func category(for id: UUID?, in categories: [Category]) throws -> Category? {
+        guard let id else {
+            return nil
+        }
+        guard let category = categories.first(where: { $0.id == id }) else {
+            throw TransactionEditError.unavailableCategory
+        }
+        return category
+    }
+}
+
 /// Applies import-time category precedence without creating categories from bank-provided labels.
 enum ImportCategorySuggestionService {
     /// Conservative source labels that have a clear equivalent in the app's category vocabulary.

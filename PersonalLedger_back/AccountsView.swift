@@ -198,7 +198,11 @@ struct AccountDetailView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(accountTransactions) { transaction in
-                        TransactionListRow(transaction: transaction, showsAccount: false)
+                        NavigationLink {
+                            TransactionDetailView(transaction: transaction)
+                        } label: {
+                            TransactionListRow(transaction: transaction, showsAccount: false)
+                        }
                     }
                 }
             }
@@ -406,7 +410,7 @@ struct AccountEditorView: View {
     }
 }
 
-private extension AccountType {
+extension AccountType {
     var iconName: String {
         switch self {
         case .transactionAccount:

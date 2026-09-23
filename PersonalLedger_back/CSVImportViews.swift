@@ -38,7 +38,11 @@ struct TransactionsView: View {
                     )
                 } else {
                     List(filteredTransactions) { transaction in
-                        TransactionListRow(transaction: transaction, showsAccount: true)
+                        NavigationLink {
+                            TransactionDetailView(transaction: transaction)
+                        } label: {
+                            TransactionListRow(transaction: transaction, showsAccount: true)
+                        }
                     }
                 }
             }
