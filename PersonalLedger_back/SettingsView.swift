@@ -6,8 +6,6 @@ struct SettingsView: View {
     private var usesAppleIntelligenceSuggestions = false
 
     @State private var isOnboardingPresented = false
-    @State private var pendingReplayAction: FirstUseAction?
-    @State private var replayAction: FirstUseAction?
 
     private let transactionEnricher = AppleFoundationModelTransactionEnricher()
 
@@ -35,7 +33,7 @@ struct SettingsView: View {
                 }
 
                 Section("About") {
-                    Button("Replay introduction") {
+                    Button("Welcome to Nett") {
                         isOnboardingPresented = true
                     }
                 }
@@ -44,21 +42,9 @@ struct SettingsView: View {
             .task {
                 TransactionAISettings.configureDefault(using: transactionEnricher.availability())
             }
-            .sheet(isPresented: $isOnboardingPresented, onDismiss: presentPendingReplayAction) {
-                OnboardingView(
-                    onDismiss: { isOnboardingPresented = false },
-                    onAction: { action in
-                        pendingReplayAction = action
-                        isOnboardingPresented = false
-                    }
-                )
-            }
-            .sheet(item: $replayAction) { action in
-                switch action {
-                case .importStatement:
-                    CSVImportFlowView { _ in }
-                case .addAccount:
-                    AccountEditorView(account: nil)
+            .sheet(isPresented: $isOnboardingPresented) {
+                OnboardingView {
+                    isOnboardingPresented = false
                 }
             }
         }
@@ -67,11 +53,6 @@ struct SettingsView: View {
     private var transactionSuggestionDescription: String {
         transactionEnricher.availability().standardCategorisationMessage ??
             "Uses Apple Intelligence on this device only for optional merchant and category suggestions."
-    }
-
-    private func presentPendingReplayAction() {
-        replayAction = pendingReplayAction
-        pendingReplayAction = nil
     }
 }
 
