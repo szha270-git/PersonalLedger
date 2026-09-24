@@ -9,6 +9,16 @@
 /* Begin PBXBuildFile section */
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		2DCE31E53032E3D100A73C1F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000000 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 000000000000000100000000;
+			remoteInfo = PersonalLedger_back;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		000000000000000000000120 /* Ledger.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Ledger.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2DCE31DE3032E3D100A73C1F /* LedgerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LedgerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -90,6 +100,9 @@
 			);
 			buildRules = (
 			);
+			dependencies = (
+				2DCE31E63032E3D100A73C1F /* PBXTargetDependency */,
+			);
 			fileSystemSynchronizedGroups = (
 				2DCE31DF3032E3D100A73C1F /* LedgerTests */,
 			);
@@ -161,6 +174,14 @@
 			);
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		2DCE31E63032E3D100A73C1F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 000000000000000100000000 /* PersonalLedger_back */;
+			targetProxy = 2DCE31E53032E3D100A73C1F /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		000000000000000011000000 /* Debug configuration for PBXProject "PersonalLedger_back" */ = {
@@ -298,12 +319,14 @@
 		000000000000000111000000 /* Debug configuration for PBXNativeTarget "PersonalLedger_back" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Nett;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -336,12 +359,14 @@
 		000000000000000112000000 /* Release configuration for PBXNativeTarget "PersonalLedger_back" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Nett;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;

@@ -364,7 +364,17 @@ private struct TransactionEditView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        save()
+                        do {
+                            try TransactionEditService.save(
+                                draft,
+                                to: transaction,
+                                categories: categories,
+                                in: modelContext
+                            )
+                            dismiss()
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
                     }
                     .disabled(draft.merchantDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
@@ -380,19 +390,6 @@ private struct TransactionEditView: View {
         }
     }
 
-    private func save() {
-        do {
-            try TransactionEditService.save(
-                draft,
-                to: transaction,
-                categories: categories,
-                in: modelContext
-            )
-            dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
 }
 
 private extension Account {
